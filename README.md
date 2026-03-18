@@ -55,19 +55,6 @@ The 3rd option is of course to source and produce the Time Card with the manufac
 
 The 4th option is to purchase a Time Card available on the [OCP Marketplace](https://www.opencompute.org/products?refinementList%5Bhardware.categories.Cards%5D%5B0%5D=Time%20Cards) or other compatible Time Card from 3rd parties. Of course, this is the conveniet way to get your hands on a Time Card. Keep in mind, there is a cost associated with the vendors manufacturing the card and providing you all kinds of support in addition to their profit margins. It is good to know how much you are paying for parts and how much you are paying for the covenience.
 
-## What is the price for parts of a Time Card
-
-There are various parts that can sit on the Time Card as options and can change the total price. 
-Here we have a breakdown:
-* Time Card's mainboard: PCB with Assembly (Parts soldered on the PCB) should be about $200.
-* Alinx SOM (AC7100B) should be about $250.
-* GNSS recevier: The u-blox RCB-F9T is about $300. Other GNSS modules may vary in price based on their performance and capabilities in range of $50 to $500.
-* Atomic Clock: The SA-53 is about $1995 (from microchipdirect). You can use a TCXO or OCXO board as well which can be around $100 - $200
-So, in conclusion:
-* A Time Card with a RCB-F9T GNSS and a TCXO costs about $200 + $250 + $300 + $100 = $850 in parts.
-* A Time Card with a RCB-F9T GNSS and a MAC (SA-53) costs about $200 + $250 + $300 + $1995 = $2695 in parts.
-
-
 ## Time Card Derivatives
 These are Time Cards made by other companies that are developed with different hardware yet compatible with the architecure and the driver of the Time Card:
 * [Safran ART2](https://safran-navigation-timing.com/about-the-atomic-reference-time-card-art-card/) (fully open sourced and available on this [link](https://github.com/Orolia2s/art-card-board))
