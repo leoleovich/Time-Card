@@ -55,6 +55,23 @@ After successfully loading the driver, one will see:
 
 Now, one can use standard `linuxptp` tools such as `phc2sys` or `ts2phc` to copy, sync, tune, etc... See more in [software](/Software) section
 
+## Windows Driver
+
+The Windows driver is a KMDF-based driver that provides similar functionality to the Linux version.
+
+### Features
+*   **PTP Support**: High-precision time reading via IOCTL.
+*   **Serial Ports**: Automatically enumerates the 4 UARTs (GNSS, MAC, NMEA) as standard Windows COM ports.
+*   **Configuration**: Supports board configuration and SMA mapping through a custom interface.
+
+### Instruction
+1.  **Enable Test-Signing**: `bcdedit /set testsigning on` (Required for non-production signed drivers).
+2.  **Install**: Right-click `windows/timecard.inf` and select **Install**.
+3.  **Verify**: Open **Device Manager** and check for "TimeCard High Precision Clock" under "System devices" and the corresponding COM ports under "Ports (COM & LPT)".
+
+### Outcome
+Once installed, you can use standard serial tools (like PuTTY or Teraterm) to communicate with the GNSS/Atomic clock on the card. High-precision time synchronization applications can use the provided IOCTL interface.
+
 ## Driver is included in the mainstream Linux Kernel
 * Initial primitive version ([5.2](https://git.kernel.org/pub/scm/linux/kernel/git/netdev/net-next.git/commit/?id=a7e1abad13f3f0366ee625831fecda2b603cdc17))
 * Exposing all devices version ([5.15](https://git.kernel.org/pub/scm/linux/kernel/git/torvalds/linux.git/commit/?id=773bda96492153e11d21eb63ac814669b51fc701)) 
