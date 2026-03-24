@@ -1,10 +1,29 @@
 #!/usr/bin/env python3
 
 import os
+os.environ.setdefault('ESCDELAY', '25')
 import curses
 import time
 import argparse
 import random
+from collections import deque
+
+class DataHistory:
+    def __init__(self, max_len=50):
+        self.max_len = max_len
+        self.data = deque(maxlen=max_len)
+
+    def add(self, value):
+        try:
+            val = float(value)
+            self.data.append(val)
+        except (ValueError, TypeError):
+            pass
+
+    def get_stats(self):
+        if not self.data:
+            return 0, 0, 0
+        return min(self.data), max(self.data), self.data[-1]
 
 class TimeCardManager:
     BASE_PATH = "/sys/class/timecard"
@@ -94,6 +113,11 @@ class TimeCardUI:
         self.sub_menu_idx = 0
         self.mode = "DASHBOARD" # DASHBOARD, CONFIG_SMA, CONFIG_TIMING, CONFIG_TOD
         
+        self.history = {
+            "drift": {}, # card_name -> DataHistory
+            "offset": {} # card_name -> DataHistory
+        }
+        
         # UI colors
         curses.start_color()
         curses.init_pair(1, curses.COLOR_CYAN, curses.COLOR_BLACK) # Header
@@ -104,7 +128,7 @@ class TimeCardUI:
 
     def draw_header(self):
         h, w = self.stdscr.getmaxyx()
-        title = " TimeCard Ncurses Configurator "
+        title = " TimeCard Configurator "
         self.stdscr.attron(curses.color_pair(5) | curses.A_BOLD)
         self.stdscr.addstr(0, (w - len(title)) // 2, title)
         self.stdscr.attroff(curses.color_pair(5) | curses.A_BOLD)
@@ -128,6 +152,11 @@ class TimeCardUI:
             self.stdscr.addstr(6, 5, "No TimeCard devices found in /sys/class/timecard/", curses.color_pair(4))
             return
 
+        # Initialize history for this card if not exists
+        if card not in self.history["drift"]:
+            self.history["drift"][card] = DataHistory()
+            self.history["offset"][card] = DataHistory()
+
         attrs = [
             ("Serial Number", "serialnum"),
             ("GNSS Sync Status", "gnss_sync"),
@@ -139,20 +168,103 @@ class TimeCardUI:
 
         for i, (label, attr) in enumerate(attrs):
             val = self.manager.get_attr(card, attr)
+            if attr == "clock_status_drift":
+                self.history["drift"][card].add(val)
+            elif attr == "clock_status_offset":
+                self.history["offset"][card].add(val)
+            
             self.stdscr.addstr(6 + i, 4, f"{label:20}: ")
             self.stdscr.addstr(val, curses.color_pair(2) | curses.A_BOLD)
 
+        # Draw Graphs
+        h, w = self.stdscr.getmaxyx()
+        graph_w = min(w // 2 - 10, 50)
+        graph_h = 5
+        self.draw_graph(6, w // 2, graph_h, graph_w, self.history["drift"][card], "Drift History")
+        self.draw_graph(14, w // 2, graph_h, graph_w, self.history["offset"][card], "Offset History")
+
         self.stdscr.addstr(14, 2, "Menu (Use Arrow Keys & Enter):")
-        menu_items = ["Dashboard", "SMA Configuration", "Timing Configuration", "ToD Configuration"]
+        menu_items = ["SMA Configuration", "Timing Configuration", "ToD Configuration", "About"]
         for i, item in enumerate(menu_items):
             style = curses.A_REVERSE if (self.menu_idx == i and self.mode == "DASHBOARD") else curses.A_NORMAL
             self.stdscr.addstr(16 + i, 4, f"{i+1}. {item}", style)
+
+    def draw_about(self):
+        self.stdscr.attron(curses.A_BOLD)
+        self.stdscr.addstr(4, 2, "--- About ---")
+        self.stdscr.attroff(curses.A_BOLD)
+
+        info = [
+            "Time Card Configurator v1.0",
+            "",
+            "A comprehensive ncurses tool for configuring and monitoring",
+            "the Time Card driver via sysfs.",
+            "",
+            "Project: Time Card (https://github.com/opencomputeproject/Time-Card)",
+            "Maintainer: Ahmad Byagowi",
+            "",
+            "Features:",
+            "- Real-time GNSS sync and clock monitoring",
+            "- Interactive SMA mapping and timing configuration",
+            "- Support for multiple Time Card instances",
+            "- Visual representation of clock drift and offset",
+            "",
+            "Press 'Backspace' to return to Dashboard."
+        ]
+
+        for i, line in enumerate(info):
+            self.stdscr.addstr(6 + i, 4, line)
+
+    def draw_graph(self, y, x, height, width, history, title):
+        self.stdscr.addstr(y, x, f" {title} ", curses.A_BOLD | curses.color_pair(1))
+        if not history.data:
+            self.stdscr.addstr(y + 2, x + 2, "Waiting for data...", curses.A_DIM)
+            return
+
+        min_v, max_v, last_v = history.get_stats()
+        v_range = max_v - min_v
+        if v_range == 0: v_range = 1.0
+
+        # Draw axes/box
+        for i in range(height):
+            self.stdscr.addch(y + 1 + i, x, curses.ACS_VLINE)
+        self.stdscr.addch(y + height + 1, x, curses.ACS_LLCORNER)
+        self.stdscr.hline(y + height + 1, x + 1, curses.ACS_HLINE, width)
+
+        # Plot data
+        data_points = list(history.data)
+        for i, val in enumerate(data_points[-width:]):
+            norm_v = (val - min_v) / v_range
+            bar_h = int(norm_v * (height - 1))
+            self.stdscr.addch(y + height - bar_h, x + 1 + i, "o", curses.color_pair(2))
+
+        self.stdscr.addstr(y + height + 2, x, f"L:{last_v:.4f} Min:{min_v:.4f} Max:{max_v:.4f}")
 
     def draw_sma_config(self):
         card = self.get_current_card()
         self.stdscr.attron(curses.A_BOLD)
         self.stdscr.addstr(4, 2, f"--- SMA Configuration for {card} ---")
         self.stdscr.attroff(curses.A_BOLD)
+
+        # Dynamic ASCII Art for SMA
+        sma_vals = [self.manager.get_attr(card, f"sma{i}") for i in range(1, 5)]
+        sma_modes = []
+        for v in sma_vals:
+            if "IN" in v: sma_modes.append("I")
+            elif "OUT" in v: sma_modes.append("O")
+            else: sma_modes.append("-")
+        
+        sma_art = [
+            "      _---_      ",
+            "     / SMA \\     ",
+            f"    |{' '.join([str(i) for i in range(1, 5)]):^7}|    ",
+            f"    |{' '.join(sma_modes):^7}|    ",
+            "     \\_____/     ",
+            "      |   |      "
+        ]
+        h, w = self.stdscr.getmaxyx()
+        for i, line in enumerate(sma_art):
+            self.stdscr.addstr(6 + i, w - 25, line, curses.color_pair(1))
         
         smas = [("SMA1", "sma1"), ("SMA2", "sma2"), ("SMA3", "sma3"), ("SMA4", "sma4")]
         for i, (label, attr) in enumerate(smas):
@@ -170,6 +282,24 @@ class TimeCardUI:
         self.stdscr.attron(curses.A_BOLD)
         self.stdscr.addstr(4, 2, f"--- Timing Configuration for {card} ---")
         self.stdscr.attroff(curses.A_BOLD)
+
+        # Dynamic ASCII Art for Timing
+        sync = self.manager.get_attr(card, "gnss_sync")
+        is_locked = sync == "1"
+        status_text = "LOCKED" if is_locked else "SYNCING"
+        color = curses.color_pair(2) if is_locked else curses.color_pair(3)
+        
+        timing_art = [
+            "      _---_      ",
+            "     /     \\     ",
+            f"    | {status_text:^7} |    ",
+            "    |  -O-  |    ",
+            "    |   |   |    ",
+            "     \\_____/     "
+        ]
+        h, w = self.stdscr.getmaxyx()
+        for i, line in enumerate(timing_art):
+            self.stdscr.addstr(6 + i, w - 25, line, color)
 
         attrs = [
             ("External PPS Delay", "external_pps_cable_delay"),
@@ -192,6 +322,27 @@ class TimeCardUI:
         self.stdscr.attron(curses.A_BOLD)
         self.stdscr.addstr(4, 2, f"--- ToD Configuration for {card} ---")
         self.stdscr.attroff(curses.A_BOLD)
+
+        # Dynamic ASCII Art for ToD
+        protocol = self.manager.get_attr(card, "tod_protocol")
+        if protocol == "NMEA":
+            line2 = "| $GP-NMEA |"
+        elif protocol == "UBX":
+            line2 = "| U-BLOX.. |"
+        else:
+            line2 = f"| {protocol:^8} |"
+
+        tod_art = [
+            "   __________    ",
+            line2,
+            "  |__________|   ",
+            "      |  |       ",
+            "    __|  |__     ",
+            "   |________|    "
+        ]
+        h, w = self.stdscr.getmaxyx()
+        for i, line in enumerate(tod_art):
+            self.stdscr.addstr(6 + i, w - 25, line, curses.color_pair(1))
 
         attrs = [
             ("ToD Protocol", "tod_protocol"),
@@ -243,6 +394,8 @@ class TimeCardUI:
                 self.draw_timing_config()
             elif self.mode == "CONFIG_TOD":
                 self.draw_tod_config()
+            elif self.mode == "ABOUT":
+                self.draw_about()
 
             self.stdscr.refresh()
             
@@ -270,10 +423,10 @@ class TimeCardUI:
                     if card == "No Cards Found":
                         continue
                     if self.mode == "DASHBOARD":
-                        if self.menu_idx == 0: self.mode = "DASHBOARD"
-                        elif self.menu_idx == 1: self.mode = "CONFIG_SMA"; self.sub_menu_idx = 0
-                        elif self.menu_idx == 2: self.mode = "CONFIG_TIMING"; self.sub_menu_idx = 0
-                        elif self.menu_idx == 3: self.mode = "CONFIG_TOD"; self.sub_menu_idx = 0
+                        if self.menu_idx == 0: self.mode = "CONFIG_SMA"; self.sub_menu_idx = 0
+                        elif self.menu_idx == 1: self.mode = "CONFIG_TIMING"; self.sub_menu_idx = 0
+                        elif self.menu_idx == 2: self.mode = "CONFIG_TOD"; self.sub_menu_idx = 0
+                        elif self.menu_idx == 3: self.mode = "ABOUT"
                     elif self.mode == "CONFIG_SMA":
                         smas = ["sma1", "sma2", "sma3", "sma4"]
                         attr = smas[self.sub_menu_idx]
@@ -308,7 +461,7 @@ class TimeCardUI:
                             attr, label = attrs[self.sub_menu_idx]
                             self.edit_value(card, attr, label)
                 
-                elif ch == curses.KEY_BACKSPACE or ch == 127: # Backspace
+                elif ch == curses.KEY_BACKSPACE or ch == 127 or ch == 27: # Backspace or ESC
                     self.mode = "DASHBOARD"
                 
                 time.sleep(0.05)
